@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+chroma_data/
+.pytest_cache/
+logs/
+uploads/
+.idea/
+.claude/
+面试速记.md

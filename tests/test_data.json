@@ -1,0 +1,10 @@
+{
+  "device_id": "CNC-Machine-01",
+  "timestamp": "2026-07-12T10:00:00",
+  "sensors": {
+    "temperature": 95.0,
+    "vibration": 15.0,
+    "pressure": 0.5,
+    "rpm": 2000
+  }
+}
