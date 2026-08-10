@@ -4,6 +4,8 @@
 
 面向工业设备巡检场景的 AI Agent：接收 MQTT、REST API 或模拟器产生的传感器数据，通过 LangGraph 编排异常检测、RAG 故障诊断和维修工单生成，将人工排查流程转化为可追踪、可降级的自动化工作流。
 
+> A production-minded industrial inspection agent with explicit LangGraph routing, deterministic sensor validation, RAG-assisted diagnosis, graceful LLM fallback, and automated work-order generation.
+
 ## 解决的问题
 
 传统巡检依赖人工查看传感器读数、检索维修手册并创建工单。本项目把流程拆分为边界清晰的 Agent 节点，并针对工业场景补充确定性规则、失败降级和人工复核机制。
@@ -13,6 +15,7 @@
 | 正常数据无需调用大模型 | LangGraph 条件路由直接结束流程，降低延迟和调用成本 |
 | 故障知识分散在案例和文档中 | ChromaDB 向量检索，支持 PDF、DOCX、TXT、Markdown 入库 |
 | 外部模型或向量服务可能不可用 | 向量检索降级为关键词检索，LLM 失败降级为 RAG 结果 |
+| 传感器可能上报非法或非有限数值 | 在进入诊断前标记无效读数，避免异常数据破坏工作流 |
 | 自动诊断存在不确定性 | 置信度低于阈值时标记人工复核 |
 | 诊断结果难以进入后续流程 | 自动生成带优先级、维修建议和指派信息的结构化工单 |
 
@@ -41,7 +44,7 @@ LangGraph 中共享的 `InspectionState` 只保存流程必需的数据：传感
 - **工具接入**：支持 MQTT 实时数据、FastAPI 接口、文档解析和 ChromaDB 持久化。
 - **可靠性设计**：规则前置、检索降级、模型调用降级、置信度阈值和人工复核。
 - **结构化输出**：统一返回故障类型、严重度、原因、维修建议、匹配案例和工单信息。
-- **自动化测试**：26 项测试覆盖异常检测、RAG 检索、工单生成、文档分块与知识库写入。
+- **自动化测试**：29 项测试覆盖异常检测、非法读数、模型降级、RAG 检索、工单生成、文档分块与知识库写入。
 
 ## 技术栈
 
@@ -106,7 +109,7 @@ curl -X POST http://127.0.0.1:8000/inspect \
 pytest -q
 ```
 
-当前结果：`26 passed`。GitHub Actions 会在每次提交和 Pull Request 时自动执行测试。
+当前结果：`29 passed`。GitHub Actions 会在每次提交和 Pull Request 时自动执行测试。
 
 ## API
 

@@ -69,16 +69,16 @@ def diagnose_fault(state: dict) -> dict:
         print(f"[Agent-故障诊断] RAG 检索到 {len(matched_cases)} 条相关案例 (模式: keyword 降级)")
 
     # 2. LLM 推理
-    model = init_chat_model(
-        f"openai:{LLM_MODEL}",
-        api_key=LLM_API_KEY,
-        base_url=LLM_BASE_URL,
-        temperature=0.1,
-        max_tokens=800,
-    )
     prompt = _build_prompt(symptom_text, matched_cases)
 
     try:
+        model = init_chat_model(
+            f"openai:{LLM_MODEL}",
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            temperature=0.1,
+            max_tokens=800,
+        )
         messages = [
             SystemMessage(content="你是工业设备故障诊断专家，输出严格 JSON 格式。"),
             HumanMessage(content=prompt),

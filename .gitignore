@@ -8,5 +8,6 @@ logs/
 *.log
 uploads/
 .idea/
+.vscode/
 .claude/
 面试速记.md

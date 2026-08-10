@@ -2,7 +2,15 @@
 异常检测 Agent
 基于规则引擎对传感器数据进行阈值检测，识别异常
 """
+import math
+
 from config import THRESHOLDS
+
+
+def _deviation_ratio(value: float, boundary: float, low: float, high: float) -> float:
+    """Return a stable relative deviation, including when a boundary is zero."""
+    scale = max(abs(boundary), abs(high - low), 1.0)
+    return abs(value - boundary) / scale
 
 
 def detect_anomaly(state: dict) -> dict:
@@ -23,8 +31,19 @@ def detect_anomaly(state: dict) -> dict:
         threshold = THRESHOLDS[name]
         low, high = threshold["min"], threshold["max"]
 
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            anomaly_details.append({
+                "sensor": name,
+                "value": value,
+                "threshold": {"min": low, "max": high},
+                "type": "invalid",
+                "severity": "严重",
+                "reason": "传感器读数不是有效有限数值",
+            })
+            continue
+
         if value > high:
-            ratio = (value - high) / high
+            ratio = _deviation_ratio(value, high, low, high)
             severity = "严重" if ratio > 0.3 else "警告"
             anomaly_details.append({
                 "sensor": name,
@@ -34,7 +53,7 @@ def detect_anomaly(state: dict) -> dict:
                 "severity": severity,
             })
         elif value < low:
-            ratio = (low - value) / low
+            ratio = _deviation_ratio(value, low, low, high)
             severity = "严重" if ratio > 0.3 else "警告"
             anomaly_details.append({
                 "sensor": name,
