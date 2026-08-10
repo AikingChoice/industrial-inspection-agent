@@ -5,6 +5,7 @@ __pycache__/
 chroma_data/
 .pytest_cache/
 logs/
+*.log
 uploads/
 .idea/
 .claude/
