@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from agents.anomaly_detector import detect_anomaly
+from agents.fault_diagnoser import diagnose_fault
 from agents.work_order_generator import generate_work_order
 from rag.knowledge_base import FaultKnowledgeBase
 from mqtt.simulator import generate_sensor_reading, generate_batch
@@ -42,6 +43,32 @@ class TestAnomalyDetector:
         assert detect_anomaly(state_w)["anomaly_result"]["overall_severity"] == "警告"
         assert detect_anomaly(state_c)["anomaly_result"]["overall_severity"] == "严重"
 
+    def test_zero_lower_bound_handles_negative_reading(self):
+        state = {
+            "sensor_data": {
+                "device_id": "CNC-Machine-01",
+                "sensors": {"vibration": -1.0},
+            }
+        }
+
+        result = detect_anomaly(state)["anomaly_result"]
+
+        assert result["is_anomaly"] is True
+        assert result["anomaly_details"][0]["type"] == "low"
+
+    def test_invalid_numeric_reading_is_flagged(self):
+        state = {
+            "sensor_data": {
+                "device_id": "CNC-Machine-01",
+                "sensors": {"temperature": float("nan")},
+            }
+        }
+
+        result = detect_anomaly(state)["anomaly_result"]
+
+        assert result["overall_severity"] == "严重"
+        assert result["anomaly_details"][0]["type"] == "invalid"
+
 
 class TestKnowledgeBase:
     @pytest.fixture
@@ -72,6 +99,52 @@ class TestKnowledgeBase:
     def test_default_case(self, kb):
         results = kb.query("完全无关的文本 xyz")
         assert len(results) > 0
+
+
+class TestFaultDiagnoser:
+    def test_model_initialization_failure_uses_rag_fallback(self, monkeypatch):
+        class FakeKnowledgeBase:
+            def __init__(self, mode):
+                self.mode = mode
+
+            def load_cases(self):
+                return None
+
+            def build_symptom_text(self, sensor_data, anomaly_result):
+                return "temperature 读数 95，超过上限 85"
+
+            def query(self, symptom_text, n_results):
+                return [{
+                    "fault_id": "F001",
+                    "fault_type": "冷却系统故障",
+                    "distance": 0.2,
+                    "severity": "高",
+                    "document": "根本原因: 冷却液不足\n解决方案: 补充冷却液",
+                    "solution": "检查并补充冷却液",
+                }]
+
+        def fail_model_initialization(*args, **kwargs):
+            raise RuntimeError("missing API key")
+
+        monkeypatch.setattr("agents.fault_diagnoser.FaultKnowledgeBase", FakeKnowledgeBase)
+        monkeypatch.setattr("agents.fault_diagnoser.init_chat_model", fail_model_initialization)
+        state = {
+            "sensor_data": {"device_id": "CNC-Machine-01", "sensors": {"temperature": 95}},
+            "anomaly_result": {
+                "anomaly_details": [{
+                    "sensor": "temperature",
+                    "value": 95,
+                    "threshold": 85,
+                    "type": "high",
+                }]
+            },
+        }
+
+        diagnosis = diagnose_fault(state)["diagnosis"]
+
+        assert diagnosis["llm_used"] is False
+        assert diagnosis["fault_type"] == "冷却系统故障"
+        assert diagnosis["confidence"] == pytest.approx(0.8)
 
 
 class TestWorkOrderGenerator:
