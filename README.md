@@ -178,3 +178,14 @@ industrial-inspection-agent/
 数据库会持久化完整传感器输入和巡检结果。部署方必须确定保留期限、访问审计、加密备份和恢复演练，并通过工厂网络隔离、TLS 身份认证及数据库最小权限账号保护数据。
 
 这组门槛可以阻止未配置的服务误以生产模式运行，但**不能单独证明现场可上线**。真实 PLC/SCADA 接入、故障样本验证、告警交接、恢复演练、渗透/负载测试和维护团队签字仍是生产放行条件。
+
+## 生产运行镜像
+
+生产容器使用 `requirements-production.lock` 中带哈希的依赖锁定，不安装 ChromaDB、Ollama、MQTT 客户端、文档解析和测试依赖。镜像以非 root 用户运行，只包含 API 所需模块；PostgreSQL、密钥注入、TLS 证书、网络策略和数据库迁移由部署平台/数据库管理员管理。不要把 `.env` 文件或密钥打进镜像。
+
+```bash
+docker build -t industrial-inspection-agent:<release> .
+docker run --rm -p 8000:8000 --env-file <deployment-env-file> industrial-inspection-agent:<release>
+```
+
+部署前先审核并应用数据库迁移，再从受管密钥服务注入生产配置。生产镜像按 `/ready` 做容器就绪检查；发布时应将 Python 基础镜像固定到经过扫描批准的 digest，并由平台设置副本数、资源限制、网络策略和滚动更新策略。

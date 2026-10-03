@@ -1,0 +1,10 @@
+# Runtime-only input for the offline production image.
+# The resolved, hash-pinned lock is requirements-production.lock.
+fastapi
+uvicorn
+python-dotenv
+python-multipart
+psycopg[binary]
+langgraph
+langchain
+langchain-openai
