@@ -5,6 +5,7 @@ RAG 故障知识库
   2. chromadb 模式: 基于向量检索，需要首次运行时下载嵌入模型
 """
 import json
+import hashlib
 from pathlib import Path
 
 
@@ -19,7 +20,7 @@ class FaultKnowledgeBase:
         if mode == "chromadb":
             import chromadb
             from chromadb.utils import embedding_functions
-            from config import CHROMA_PERSIST_DIR, CHROMA_COLLECTION
+            from config import APP_ENV, CHROMA_PERSIST_DIR, CHROMA_COLLECTION
             self.client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
             # 优先用 Ollama 中文 Embedding 模型，不可用则降级为内置模型
             try:
@@ -30,7 +31,11 @@ class FaultKnowledgeBase:
                 # 测试连通性
                 self.ef(["测试"])
                 print("[RAG] 使用 Ollama dmeta-embedding-zh 中文模型")
-            except Exception:
+            except Exception as exc:
+                if APP_ENV in {"staging", "production"}:
+                    raise RuntimeError(
+                        "生产向量检索需要已批准的本地 Ollama embedding 服务；禁止自动下载默认模型"
+                    ) from exc
                 self.ef = embedding_functions.DefaultEmbeddingFunction()
                 print("[RAG] Ollama 不可用，降级为 ChromaDB 内置模型")
             self.collection = self.client.get_or_create_collection(
@@ -44,8 +49,13 @@ class FaultKnowledgeBase:
         if json_path is None:
             json_path = str(Path(__file__).parent / "data" / "fault_cases.json")
 
-        with open(json_path, "r", encoding="utf-8") as f:
-            self.cases = json.load(f)
+        case_file = Path(json_path)
+        raw_content = case_file.read_bytes()
+        from config import APP_ENV, FAULT_KNOWLEDGE_VERSION
+        self.content_sha256 = hashlib.sha256(raw_content).hexdigest()
+        if APP_ENV in {"staging", "production"} and self.content_sha256.lower() != FAULT_KNOWLEDGE_VERSION.lower():
+            raise RuntimeError("故障案例文件摘要与已批准的 FAULT_KNOWLEDGE_VERSION 不一致")
+        self.cases = json.loads(raw_content.decode("utf-8"))
 
         if self.mode == "chromadb":
             self._load_to_chroma()

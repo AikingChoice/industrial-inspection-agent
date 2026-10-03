@@ -9,7 +9,15 @@ import json
 from datetime import datetime
 
 
+def _require_demo_environment() -> None:
+    from config import APP_ENV
+
+    if APP_ENV in {"staging", "production"}:
+        raise RuntimeError("生产环境禁止运行模拟器和未审计的本地单条入口")
+
+
 def run_demo():
+    _require_demo_environment()
     """演示模式：生成模拟数据，运行完整巡检流程"""
     from mqtt.simulator import generate_batch
     from graph.workflow import run_inspection
@@ -52,6 +60,7 @@ def run_demo():
 
 
 def run_mqtt():
+    _require_demo_environment()
     """MQTT 模式：连接 Broker，实时处理传感器数据"""
     from mqtt.subscriber import SensorSubscriber
     from graph.workflow import run_inspection
@@ -73,6 +82,7 @@ def run_mqtt():
 
 
 def run_single(data_path: str):
+    _require_demo_environment()
     """单次模式：从 JSON 文件读取一条数据运行"""
     from graph.workflow import run_inspection
 

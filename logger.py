@@ -4,8 +4,9 @@
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from config import APP_ENV
 
 # 日志文件路径
 LOG_DIR = Path(__file__).parent / "logs"
@@ -25,13 +26,12 @@ def log_inspection(result: dict):
     将巡检结果追加写入 JSONL 文件
     每行一条 JSON 记录，方便用 pandas/工具链分析
     """
-    LOG_DIR.mkdir(exist_ok=True)
-
     diagnosis = result.get("diagnosis") or {}
     work_order = result.get("work_order") or {}
 
     record = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_id": result.get("sensor_data", {}).get("event_id"),
         "device_id": result.get("sensor_data", {}).get("device_id", "unknown"),
         "is_anomaly": result.get("anomaly_result", {}).get("is_anomaly", False),
         "anomaly_count": result.get("anomaly_result", {}).get("anomaly_count", 0),
@@ -45,8 +45,13 @@ def log_inspection(result: dict):
         "assignee": work_order.get("assignee"),
     }
 
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    if APP_ENV not in {"staging", "production"}:
+        LOG_DIR.mkdir(exist_ok=True)
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
+        except (OSError, ValueError):
+            logger.exception("巡检摘要文件写入失败")
 
     logger.info(
         f"巡检记录: 设备={record['device_id']} "

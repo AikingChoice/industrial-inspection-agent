@@ -23,25 +23,47 @@ class InspectionState(TypedDict):
 
 # ========== 节点函数 ==========
 def notify(state: dict) -> dict:
-    """通知节点：输出最终结果（实际场景可接入钉钉/企业微信/邮件）"""
+    """当前仅产生需审核的本地草稿，不向外部渠道发送通知。"""
     work_order = state.get("work_order")
     if work_order:
         print(f"\n{'='*60}")
-        print(f"📋 维修工单已生成")
+        print(f"📋 维修工单草稿已生成，等待人工审核")
         print(f"   工单号: {work_order['order_id']}")
         print(f"   设备:   {work_order['device_id']}")
         print(f"   优先级: {work_order['priority']}")
         print(f"   故障:   {work_order['fault_type']}")
-        print(f"   指派:   {work_order['assignee']}")
+        print(f"   指派:   {work_order['assignee'] or '待人工分派'}")
         print(f"   建议:   {work_order['recommended_action'][:80]}")
         print(f"{'='*60}\n")
-    return {"notification_sent": True}
+    return {"notification_sent": False}
+
+
+def route_data_quality_review(state: dict) -> dict:
+    """质量不合格的数据不得进入故障诊断或工单建议。"""
+    issues = state.get("anomaly_result", {}).get("data_quality_issues", [])
+    return {
+        "diagnosis": {
+            "fault_type": "遥测数据质量异常",
+            "confidence": 0.0,
+            "cause": "输入数据不完整、测点未配置或单位不匹配，不能据此判断设备状态。",
+            "solution": "请检查采集链路、测点配置和单位定义，并由设备工程师复核原始读数。",
+            "reasoning": "数据质量校验未通过，已跳过故障诊断。",
+            "need_manual_review": True,
+            "review_reason": "遥测数据质量未通过校验",
+            "data_quality_issues": issues,
+            "llm_used": False,
+        },
+        "work_order": None,
+        "notification_sent": False,
+    }
 
 
 # ========== 条件路由 ==========
 def should_diagnose(state: dict) -> str:
     """根据异常检测结果决定是否进入诊断流程"""
     anomaly = state.get("anomaly_result", {})
+    if not anomaly.get("data_quality_ok", True):
+        return "quality_review"
     if anomaly.get("is_anomaly", False):
         return "diagnose"
     return "end"
@@ -74,9 +96,13 @@ def build_inspection_graph() -> StateGraph:
         should_diagnose,
         {
             "diagnose": "diagnose_fault",
+            "quality_review": "quality_review",
             "end": END,
         },
     )
+
+    graph.add_node("quality_review", route_data_quality_review)
+    graph.add_edge("quality_review", END)
 
     # 线性边：诊断 → 工单 → 通知 → 结束
     graph.add_edge("diagnose_fault", "generate_work_order")

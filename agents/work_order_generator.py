@@ -1,10 +1,10 @@
 """
 工单生成 Agent
-根据诊断结果自动生成维修工单
+根据诊断结果生成待人工审核的维修工单草稿
 """
 import uuid
-from datetime import datetime
-from config import WORK_ORDER_PREFIX
+from datetime import datetime, timezone
+from config import APP_ENV, FAULT_KNOWLEDGE_VERSION, THRESHOLD_CONFIG_SHA256, WORK_ORDER_PREFIX
 
 
 # 优先级映射
@@ -13,21 +13,6 @@ SEVERITY_PRIORITY = {
     "警告": "高",
     "低": "中",
 }
-
-# 维修班组分配（按设备类型）
-ASSIGNEE_MAP = {
-    "CNC-Machine": "机械维修A组",
-    "RoboticArm": "自动化维修B组",
-    "default": "综合维修组",
-}
-
-
-def _get_assignee(device_id: str) -> str:
-    for prefix, team in ASSIGNEE_MAP.items():
-        if prefix in device_id:
-            return team
-    return ASSIGNEE_MAP["default"]
-
 
 def generate_work_order(state: dict) -> dict:
     """
@@ -43,24 +28,40 @@ def generate_work_order(state: dict) -> dict:
     severity = anomaly_result.get("overall_severity", "警告")
     fault_type = diagnosis.get("fault_type", "未知故障")
     solution = diagnosis.get("solution", "待人工排查")
+    suggested_priority = SEVERITY_PRIORITY.get(severity, "中")
+    priority = (
+        "待人工定级"
+        if APP_ENV in {"staging", "production"}
+        else suggested_priority
+    )
 
     work_order = {
-        "order_id": f"{WORK_ORDER_PREFIX}-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
-        "created_at": datetime.now().isoformat(),
+        "order_id": f"{WORK_ORDER_PREFIX}-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:12].upper()}",
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "device_id": device_id,
-        "priority": SEVERITY_PRIORITY.get(severity, "中"),
+        "event_id": sensor_data.get("event_id"),
+        "priority": priority,
+        "suggested_priority": suggested_priority,
         "fault_type": fault_type,
         "severity": severity,
-        "description": f"设备 {device_id} 检测到 {fault_type}，严重程度: {severity}",
+        "description": f"设备 {device_id} 出现异常信号，候选诊断为 {fault_type}；需由设备工程师确认",
         "diagnosis_detail": diagnosis.get("cause", ""),
         "recommended_action": solution,
-        "assignee": _get_assignee(device_id),
+        "assignee": None,
         "status": "待处理",
+        "approval_status": "待人工审核",
+        "is_draft": True,
+        "human_approval_required": True,
         "sensor_snapshot": sensor_data.get("sensors", {}),
+        "sensor_units": sensor_data.get("sensor_units", {}),
+        "threshold_profile_id": anomaly_result.get("threshold_profile_id"),
+        "threshold_config_sha256": THRESHOLD_CONFIG_SHA256,
+        "knowledge_base_version": FAULT_KNOWLEDGE_VERSION,
+        "evidence": diagnosis.get("matched_cases", []),
     }
 
-    print(f"[Agent-工单生成] 工单 {work_order['order_id']} 已创建")
-    print(f"  优先级: {work_order['priority']} | 指派: {work_order['assignee']}")
+    print(f"[Agent-工单生成] 草稿 {work_order['order_id']} 已生成，等待人工审核")
+    print(f"  优先级: {work_order['priority']} | 指派: 待人工分派")
     print(f"  故障: {fault_type} | 建议: {solution[:60]}...")
 
     return {"work_order": work_order}

@@ -5,7 +5,7 @@ MQTT 传感器数据模拟器
 import json
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 # 模拟设备列表
@@ -19,6 +19,13 @@ NORMAL_RANGES = {
     "rpm":         (1200, 2800),# r/min
 }
 
+SENSOR_UNITS = {
+    "temperature": "°C",
+    "vibration": "mm/s",
+    "pressure": "MPa",
+    "rpm": "r/min",
+}
+
 # 异常注入概率
 ANOMALY_PROBABILITY = 0.15  # 15% 概率产生异常数据
 
@@ -29,8 +36,9 @@ def generate_sensor_reading(device_id: str) -> dict:
 
     reading = {
         "device_id": device_id,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "sensors": {},
+        "sensor_units": SENSOR_UNITS,
     }
 
     for sensor, (low, high) in NORMAL_RANGES.items():

@@ -4,7 +4,7 @@
 """
 import math
 
-from config import THRESHOLDS
+from config import APP_ENV, REQUIRED_SENSORS, THRESHOLD_CONFIG_SHA256, THRESHOLD_PROFILE_ID, THRESHOLDS
 
 
 def _deviation_ratio(value: float, boundary: float, low: float, high: float) -> float:
@@ -21,8 +21,38 @@ def detect_anomaly(state: dict) -> dict:
     """
     sensor_data = state["sensor_data"]
     sensors = sensor_data.get("sensors", {})
+    sensor_units = sensor_data.get("sensor_units", {})
+    operating_state = sensor_data.get("operating_state")
     anomaly_details = []
+    data_quality_issues = []
     max_severity = "正常"
+
+    missing_sensors = sorted(REQUIRED_SENSORS - set(sensors))
+    if missing_sensors:
+        data_quality_issues.append({
+            "type": "missing_required_sensors",
+            "sensors": missing_sensors,
+        })
+
+    unknown_sensors = sorted(set(sensors) - set(THRESHOLDS))
+    if unknown_sensors:
+        data_quality_issues.append({
+            "type": "unconfigured_sensors",
+            "sensors": unknown_sensors,
+        })
+
+    if APP_ENV in {"staging", "production"} and not sensor_units:
+        data_quality_issues.append({"type": "missing_sensor_units"})
+
+    state_sensitive_sensors = {
+        name for name, threshold in THRESHOLDS.items()
+        if threshold.get("by_state") and name in sensors
+    }
+    if state_sensitive_sensors and not operating_state:
+        data_quality_issues.append({
+            "type": "missing_operating_state",
+            "sensors": sorted(state_sensitive_sensors),
+        })
 
     for name, value in sensors.items():
         if name not in THRESHOLDS:
@@ -30,6 +60,26 @@ def detect_anomaly(state: dict) -> dict:
 
         threshold = THRESHOLDS[name]
         low, high = threshold["min"], threshold["max"]
+        state_limits = threshold.get("by_state", {})
+        if state_limits:
+            if operating_state not in state_limits:
+                data_quality_issues.append({
+                    "type": "unconfigured_operating_state",
+                    "sensor": name,
+                    "operating_state": operating_state,
+                })
+                continue
+            low, high = state_limits[operating_state]["min"], state_limits[operating_state]["max"]
+
+        unit = sensor_units.get(name)
+        if unit is not None and unit != threshold["unit"]:
+            data_quality_issues.append({
+                "type": "unit_mismatch",
+                "sensor": name,
+                "expected": threshold["unit"],
+                "received": unit,
+            })
+            continue
 
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             anomaly_details.append({
@@ -69,13 +119,20 @@ def detect_anomaly(state: dict) -> dict:
     elif anomaly_details:
         max_severity = "警告"
 
-    is_anomaly = len(anomaly_details) > 0
+    if data_quality_issues:
+        max_severity = "严重"
+
+    is_anomaly = bool(anomaly_details or data_quality_issues)
 
     result = {
         "is_anomaly": is_anomaly,
         "anomaly_count": len(anomaly_details),
         "anomaly_details": anomaly_details,
         "overall_severity": max_severity,
+        "data_quality_ok": not data_quality_issues,
+        "data_quality_issues": data_quality_issues,
+        "threshold_profile_id": THRESHOLD_PROFILE_ID,
+        "threshold_config_sha256": THRESHOLD_CONFIG_SHA256,
     }
 
     print(f"[Agent-异常检测] {sensor_data['device_id']}: "
